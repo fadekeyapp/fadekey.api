@@ -1,0 +1,42 @@
+# Render.com deployment configuration
+# https://render.com/docs/blueprint-spec
+
+services:
+
+  # ── API ─────────────────────────────────────────────────────────────────────
+  - type: web
+    name: fadekey-api
+    runtime: node
+    rootDir: .
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npx prisma migrate deploy && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: fadekey-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: fadekey-redis
+          type: redis
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false   # set to your web service URL after first deploy
+      - key: APP_URL
+        sync: false
+
+databases:
+  - name: fadekey-db
+    databaseName: fadekey
+    plan: free
+
+  - name: fadekey-redis
+    type: redis
+    plan: free
