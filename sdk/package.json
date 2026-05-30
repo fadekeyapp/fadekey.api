@@ -1,0 +1,57 @@
+{
+  "name": "@fadekey/sdk",
+  "version": "0.2.0",
+  "description": "Official SDK for FadeKey — zero-knowledge, self-destructing encrypted secrets",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0"
+  },
+  "keywords": [
+    "fadekey",
+    "secret",
+    "encryption",
+    "aes-gcm",
+    "zero-knowledge",
+    "self-destructing",
+    "sdk"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fadekeyapp/fadekey.api.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://fadekey.app",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -25,3 +25,7 @@ Thumbs.db
 *.swp
 *.swo
 build_output.txt
+
+# SDK
+sdk/dist/
+
