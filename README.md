@@ -1,117 +1,195 @@
-# FadeKey
+# FadeKey API
 
-> Zero-knowledge, self-destructing encrypted secrets.
+> Stateless, Redis-backed zero-knowledge sharing engine. Ideal for CI/CD pipelines, DevOps, and automation.
 
-Share passwords, tokens, and sensitive messages with end-to-end encryption. Every secret is destroyed after reading — the server never sees your plaintext, ever.
+This is the open-source backend for **FadeKey**, a secure tool to share passwords, tokens, and sensitive messages with end-to-end encryption. 
 
-## How it works
+The API is fully stateless, extremely lightweight, and requires **only Redis** (no SQL databases, no migrations).
+
+---
+
+## How it Works
 
 ```
-Browser                          Server
-──────────────────────────────   ─────────────────────────────
+Client (Browser/CLI)                   API Server (Fastify)
+─────────────────────                  ────────────────────
 plaintext
   │
-  ▼ AES-GCM encrypt (Web Crypto)
+  ▼ AES-GCM encrypt (Client-side)
 ciphertext + key
-  │                   ciphertext ──────────────────► Redis
-  │                   (POST /api/items)              (TTL + view limit)
+  │                        ciphertext ──────────────────► Redis
+  │                        (POST /api/items)              (TTL + view limit)
   │
   └─ key stays in URL fragment (#key=...)
-     ─────────────────────────────────────────────► never sent in HTTP
-                                                     never in server logs
+     ───────────────────────────────────────────────────► never sent in HTTP
+                                                          never in server logs
 
-Recipient opens  /s/{id}#{key}
+Recipient opens link with #{key}
   │
-  └─ Browser fetches ciphertext from API
-  └─ Decrypts locally with #key
-  └─ Server destroys ciphertext on final view
+  └─ Client fetches ciphertext from API (GET /api/items/:id)
+  └─ Decrypts locally using the fragment #key
+  └─ Server deletes the ciphertext from Redis on final view
 ```
 
-The key lives in the [URL fragment](https://developer.mozilla.org/en-US/docs/Web/API/URL/hash). Browsers only use it locally — it is never included in HTTP requests, server logs, or `Referer` headers.
+The decryption key lives in the URL fragment (e.g. `https://fadekey.app/s/uuid#key`). Browsers only process the fragment locally — it is never included in HTTP requests, server logs, or `Referer` headers. The server never sees the decryption key or plaintext.
 
-## Monorepo structure
+---
 
-```
-fadekey/
-├── apps/
-│   ├── api/          Fastify REST API — standalone, self-hostable
-│   └── web/          Nuxt 4 SSR + PWA frontend
-├── .env.example      Root environment variables (for Docker / Render)
-├── .gitignore
-├── docker-compose.yml
-├── Makefile
-├── package.json      npm workspaces root
-└── render.yaml       Render.com one-click deploy
-```
+## Features
 
-## Quick start
+- **Zero-Knowledge**: Client-side AES-GCM encryption. The server only stores encrypted binary blobs.
+- **Stateless & Database-Free**: No PostgreSQL, no Prisma, no migrations. Everything is managed in Redis with TTLs (Time-to-Live).
+- **Self-Destructing**: Secrets are deleted automatically after a configurable number of views (`maxViews`) or when the TTL expires.
+- **Password Protection**: Optional client-side PBKDF2-derived password check for extra security.
+- **Playground Mode**: Integrated daily quotas for documentation testing.
 
-### Docker (recommended)
+---
+
+## Quick Start
+
+### 1. Docker Compose (Recommended)
+
+To run the API and a Redis instance locally using Docker:
 
 ```bash
+docker compose up -d
+```
+
+This starts:
+*   The API server at `http://localhost:3002`
+*   Redis at `localhost:6380`
+
+---
+
+### 2. Local Development
+
+Ensure you have Node.js 20+ and Redis running.
+
+```bash
+# Clone the repository
+git clone https://github.com/fadekeyapp/fadekey.api.git
+cd fadekey.api
+
+# Install dependencies
+npm install
+
+# Create environment file
 cp .env.example .env
-# Edit .env — set JWT_ACCESS_SECRET and JWT_REFRESH_SECRET to 64-byte random hex
+# Customize .env if your Redis is running on a different port/host
 
-make docker-up
+# Start development server
+npm run dev
 ```
 
-- Frontend → http://localhost:3000  
-- API      → http://localhost:3001
+The server will start at `http://localhost:3002` (or the `PORT` specified in your `.env`).
 
-### Local development
+---
 
+## API Endpoints
+
+### 1. Store a Secret
+`POST /api/items`
+
+**Request Body:**
+```json
+{
+  "ciphertext": "encrypted-base64url-payload",
+  "iv": "16-character-base64url-iv",
+  "ttl": 3600,
+  "maxViews": 1,
+  "passwordHash": "optional-client-derived-pbkdf2-hash"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "id": "e305e921-6cb3-4876-bde3-f111bd0175b3",
+  "expiresAt": "2026-05-30T14:11:24.067Z",
+  "effectiveTtl": 3600,
+  "effectiveMaxViews": 1,
+  "mode": "production"
+}
+```
+
+---
+
+### 2. Retrieve a Secret
+`GET /api/items/:id`
+
+If the secret is password-protected, you must send the derived password hash via the `X-Password-Hash` header or in the request body.
+
+**Response (200 OK):**
+```json
+{
+  "ciphertext": "encrypted-base64url-payload",
+  "iv": "16-character-base64url-iv",
+  "hasPassword": false,
+  "views": 1,
+  "maxViews": 1,
+  "destroyed": true
+}
+```
+*(Once `destroyed` is true, the item is deleted from Redis immediately).*
+
+---
+
+### 3. Health Check
+`GET /health`
+
+**Response (200 OK):**
+```json
+{
+  "status": "ok",
+  "version": "0.2.0",
+  "timestamp": "2026-05-30T13:05:35.256Z"
+}
+```
+
+---
+
+## Use Cases & CLI Examples
+
+### 1. Share Secrets via CLI (DevOps / Scripts)
+Since the API is stateless and doesn't require session state, you can easily integrate it into your deployment pipelines (GitHub Actions, GitLab CI) or local automation scripts using `curl`:
+
+**Store a secret from your terminal:**
 ```bash
-npm install          # installs all workspaces
-
-# In separate terminals:
-make dev-api         # Fastify + tsx watch on :3001
-make dev-web         # Nuxt dev server on :3000
+curl -X POST http://localhost:3002/api/items \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ciphertext": "eG1hcy1zZWNyZXQtaGVyZQ",
+    "iv": "YWJjZGVmZ2hpamtsbW5vcA",
+    "ttl": 300,
+    "maxViews": 1
+  }'
 ```
 
-Or both at once:
-
+**Retrieve and destroy the secret:**
 ```bash
-make dev
+# Getting it once deletes it from Redis immediately
+curl -X GET http://localhost:3002/api/items/YOUR_SECRET_UUID
 ```
 
-### Database
+### 2. DevOps & Automation Examples
+*   **Secure Key Passing**: Securely pass temporary access tokens or configuration parameters between decoupled tasks in a pipeline without writing them to persistent system logs.
+*   **Ephemeral Developer Access**: Generate one-time-use tokens for developer debugging sessions that expire automatically in 15 minutes.
+*   **ChatOps Integration**: Share credentials securely inside Slack or Discord teams using bot-generated links that disappear after the user opens them.
 
-```bash
-make db-migrate      # run Prisma migrations
-make db-studio       # open Prisma Studio
-```
+---
 
-## Packages
+## Configuration (`.env`)
 
-| Package    | Description                                    | Docs                          |
-|------------|------------------------------------------------|-------------------------------|
-| `apps/api` | Fastify 4 · PostgreSQL · Redis · Prisma ORM    | [README](apps/api/README.md)  |
-| `apps/web` | Nuxt 4 · SSR · PWA · i18n (en, pt-BR, es)     | [README](apps/web/README.md)  |
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PORT` | `3002` | Port to bind the Fastify server. |
+| `HOST` | `0.0.0.0` | Host interface. |
+| `NODE_ENV` | `development` | Environment mode (`development` or `production`). |
+| `REDIS_URL` | `redis://localhost:6380` | Connection string for your Redis database. |
+| `CORS_ORIGINS` | `http://localhost:3000` | Allowed origins (comma-separated). |
+| `MAX_PAYLOAD_SIZE_BYTES` | `102400` | Max size (in bytes) of the encrypted payload (default 100 KB). |
 
-## Self-hosting
-
-The API (`apps/api`) is fully standalone — it only requires PostgreSQL and Redis and ships with its own Dockerfile. Deploy it anywhere without the frontend if you only need the API.
-
-See [apps/api/README.md](apps/api/README.md) for configuration details.
-
-## Internationalization
-
-| Code    | Language            |
-|---------|---------------------|
-| `en`    | English (default)   |
-| `pt-BR` | Português (Brasil)  |
-| `es`    | Español             |
-
-Translations live in `apps/web/i18n/locales/`. Pull requests for additional locales are welcome.
-
-## Contributing
-
-1. Fork the repository  
-2. Create a feature branch: `git checkout -b feat/your-feature`  
-3. Commit with [Conventional Commits](https://www.conventionalcommits.org/)  
-4. Open a pull request
-
-Please keep all code, comments, and documentation in **English**.
+---
 
 ## License
 
