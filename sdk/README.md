@@ -2,6 +2,8 @@
 
 > Official SDK for [FadeKey](https://fadekey.app) — zero-knowledge, self-destructing encrypted secrets.
 
+If you are self-hosting the backend, Docker Compose is the recommended way to run the API. The API is also published on npm as [fadekey-api](https://www.npmjs.com/package/fadekey-api) if you prefer installing it from npm.
+
 ## Install
 
 ```bash

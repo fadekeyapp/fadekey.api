@@ -4,9 +4,11 @@
 
 This is the open-source backend for **FadeKey**, a secure tool to share passwords, tokens, and sensitive messages with end-to-end encryption. 
 
+If you want to self-host the server, Docker Compose is the recommended way to run it locally or in your own infrastructure. The API is also published on npm as [fadekey-api](https://www.npmjs.com/package/fadekey-api) for teams that prefer npm-based deployments.
+
 The API is fully stateless, extremely lightweight, and requires **only Redis** (no SQL databases, no migrations).
 
-Looking for the client library? Check out the [Official @fadekey/sdk](sdk/README.md) published on [npm](https://www.npmjs.com/package/@fadekey/sdk). It handles client-side encryption (AES-GCM), password hashing, and API requests automatically in Node.js and browsers.
+Looking for the client library? Check out the official [@fadekey/sdk](https://www.npmjs.com/package/@fadekey/sdk) on npm. It handles client-side encryption (AES-GCM), password hashing, and API requests automatically in Node.js and browsers.
 
 ---
 
