@@ -6,6 +6,8 @@ This is the open-source backend for **FadeKey**, a secure tool to share password
 
 The API is fully stateless, extremely lightweight, and requires **only Redis** (no SQL databases, no migrations).
 
+Looking for the client library? Check out the [Official @fadekey/sdk](sdk/README.md) published on [npm](https://www.npmjs.com/package/@fadekey/sdk). It handles client-side encryption (AES-GCM), password hashing, and API requests automatically in Node.js and browsers.
+
 ---
 
 ## How it Works
