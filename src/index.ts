@@ -1,10 +1,10 @@
 import Fastify from 'fastify'
 import rateLimit from '@fastify/rate-limit'
-import { config } from './config'
-import { appCorsPlugin } from './plugins/cors.plugin'
-import redisPlugin from './plugins/redis.plugin'
-import securityPlugin from './plugins/security.plugin'
-import itemRoutes from './routes/item.routes'
+import { config } from './config.js'
+import { appCorsPlugin } from './plugins/cors.plugin.js'
+import redisPlugin from './plugins/redis.plugin.js'
+import securityPlugin from './plugins/security.plugin.js'
+import itemRoutes from './routes/item.routes.js'
 
 async function bootstrap() {
   const app = Fastify({

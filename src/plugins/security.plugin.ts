@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin'
 import type { FastifyPluginAsync } from 'fastify'
-import { config } from '../config'
+import { config } from '../config.js'
 
 /**
  * Adds security headers to every response.

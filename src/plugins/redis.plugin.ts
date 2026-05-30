@@ -1,7 +1,7 @@
 import fp from 'fastify-plugin'
 import Redis from 'ioredis'
 import type { FastifyPluginAsync } from 'fastify'
-import { config } from '../config'
+import { config } from '../config.js'
 
 const redisPlugin: FastifyPluginAsync = (fastify) => {
   const redis = new Redis(config.redis.url, {

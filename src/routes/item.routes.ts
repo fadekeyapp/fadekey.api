@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { FastifyPluginAsync } from 'fastify'
-import { config } from '../config'
+import { config } from '../config.js'
 
 /**
  * Public item routes — no authentication required.

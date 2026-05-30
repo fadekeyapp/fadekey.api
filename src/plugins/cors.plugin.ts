@@ -1,6 +1,6 @@
 import cors from '@fastify/cors'
 import type { FastifyPluginAsync } from 'fastify'
-import { config } from '../config'
+import { config } from '../config.js'
 
 /**
  * CORS in two scopes:
