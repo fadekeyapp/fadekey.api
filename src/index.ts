@@ -1,19 +1,10 @@
 import Fastify from 'fastify'
 import rateLimit from '@fastify/rate-limit'
-import cookie from '@fastify/cookie'
 import { config } from './config'
 import { appCorsPlugin } from './plugins/cors.plugin'
 import redisPlugin from './plugins/redis.plugin'
-import prismaPlugin from './plugins/prisma.plugin'
-import jwtPlugin from './plugins/jwt.plugin'
 import securityPlugin from './plugins/security.plugin'
-import quotaPlugin from './plugins/quota.plugin'
 import itemRoutes from './routes/item.routes'
-import authRoutes from './routes/auth.routes'
-import apiKeyRoutes from './routes/apikey.routes'
-import dashboardRoutes from './routes/dashboard.routes'
-import contactRoutes from './routes/contact.routes'
-import { runOnboardingJob } from './jobs/onboarding.job'
 
 async function bootstrap() {
   const app = Fastify({
@@ -30,11 +21,7 @@ async function bootstrap() {
 
   // ── Core plugins ─────────────────────────────────────────────────────────────
   await app.register(securityPlugin)
-  await app.register(cookie)
   await app.register(redisPlugin)
-  await app.register(prismaPlugin)
-  await app.register(quotaPlugin)
-  await app.register(jwtPlugin)
   await app.register(appCorsPlugin)
 
   // ── Global rate limiting ─────────────────────────────────────────────────────
@@ -50,12 +37,7 @@ async function bootstrap() {
   })
 
   // ── Routes ───────────────────────────────────────────────────────────────────
-  // CORS behavior is selected dynamically by path in appCorsPlugin.
   await app.register(itemRoutes, { prefix: '/api' })
-  await app.register(authRoutes, { prefix: '/api' })
-  await app.register(apiKeyRoutes, { prefix: '/api' })
-  await app.register(dashboardRoutes, { prefix: '/api' })
-  await app.register(contactRoutes, { prefix: '/api' })
 
   // ── Health check ─────────────────────────────────────────────────────────────
   app.get('/health', () => ({
@@ -91,8 +73,6 @@ async function bootstrap() {
   })
 
   // ── Redis readiness ─────────────────────────────────────────────────────────
-  // Do not block startup on Redis here; Railway healthchecks should verify that
-  // the HTTP server is up, while ioredis keeps retrying in the background.
   app.redis.ping()
     .then(() => app.log.info('Redis ping OK'))
     .catch((err) => app.log.error({ err }, 'Redis unreachable on startup'))
@@ -104,17 +84,6 @@ async function bootstrap() {
     app.log.error(err)
     process.exit(1)
   }
-
-  // ── Onboarding email job ─────────────────────────────────────────────────
-  // Run once at startup (catches any missed emails), then every hour.
-  const jobDeps = { prisma: app.prisma, log: app.log }
-  const runJob = () =>
-    runOnboardingJob(jobDeps).catch(err =>
-      app.log.error({ err }, 'Onboarding job failed'),
-    )
-
-  runJob()
-  setInterval(runJob, 60 * 60 * 1000) // every hour
 }
 
 void bootstrap()

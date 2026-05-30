@@ -33,82 +33,6 @@ const createItemSchema = z.object({
     .optional(), // PBKDF2-derived hash for extra password protection
 })
 
-async function getApiKeyUser(fastify: any, request: any) {
-  const authHeader = request.headers.authorization
-  const apiKeyHeader = request.headers['x-api-key']
-  let rawKey: string | undefined
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    rawKey = authHeader.substring(7)
-  } else if (typeof apiKeyHeader === 'string') {
-    rawKey = apiKeyHeader
-  }
-
-  if (!rawKey) return null
-  if (!rawKey.startsWith('fk_')) return null
-
-  const { createHash } = await import('node:crypto')
-  const keyHash = createHash('sha256').update(rawKey).digest('hex')
-
-  const apiKey = await fastify.prisma.apiKey.findFirst({
-    where: { keyHash, revokedAt: null },
-    include: { user: true },
-  })
-
-  return apiKey
-}
-
-async function resolveSecretOwner(fastify: any, request: any) {
-  const authHeader = request.headers.authorization
-  const apiKeyHeader = request.headers['x-api-key']
-  const apiKeyAttempted = typeof apiKeyHeader === 'string'
-    || (typeof authHeader === 'string' && authHeader.startsWith('Bearer fk_'))
-
-  const apiKey = await getApiKeyUser(fastify, request)
-
-  if (apiKey) {
-    return {
-      userId: apiKey.userId,
-      plan: apiKey.user.plan,
-      source: 'apiKey' as const,
-      apiKey,
-    }
-  }
-
-  if (apiKeyAttempted) {
-    return 'unauthorized' as const
-  }
-
-  if (!authHeader?.startsWith('Bearer ') || authHeader.slice(7).startsWith('fk_')) {
-    return null
-  }
-
-  try {
-    await request.jwtVerify()
-  } catch {
-    return 'unauthorized' as const
-  }
-
-  const user = await fastify.prisma.user.findUnique({
-    where: { id: request.user.sub },
-    select: { id: true, plan: true, emailVerifiedAt: true, twoFactorEnabled: true },
-  })
-
-  if (!user?.emailVerifiedAt) {
-    return 'forbidden' as const
-  }
-
-  if (user.twoFactorEnabled && !request.user.twoFactorPassed) {
-    return 'forbidden' as const
-  }
-
-  return {
-    userId: user.id,
-    plan: user.plan,
-    source: 'jwt' as const,
-  }
-}
-
 type PlaygroundSession = {
   exp: number
   ip: string
@@ -210,13 +134,7 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
       rateLimit: {
         max: 30,
         timeWindow: '1 minute',
-        // Key is API key prefix when present, otherwise IP — prevents IP rotation abuse
-        keyGenerator: (req: any) => {
-          const apiKeyHeader = req.headers['x-api-key'] as string | undefined
-          const bearer = req.headers.authorization as string | undefined
-          const rawKey = apiKeyHeader ?? (bearer?.startsWith('Bearer fk_') ? bearer.slice(7) : undefined)
-          return rawKey ? `apikey:${rawKey.slice(0, 10)}` : req.ip
-        },
+        keyGenerator: (req: any) => req.ip,
       },
     },
     handler: async (request, reply) => {
@@ -257,48 +175,14 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
         })
       }
 
-      // Resolve API key (optional authentication)
-      const owner = await resolveSecretOwner(fastify, request)
-      if (owner === 'unauthorized') {
-        return reply.status(401).send({ error: 'Invalid or revoked API key.' })
-      }
-      if (owner === 'forbidden') {
-        return reply.status(403).send({ error: 'Email verification required.' })
-      }
-
-      // ── Plan-based limits ────────────────────────────────────────────────────
-      // Apply TTL and maxViews caps based on plan; free users get API access too
-      const userPlan = owner?.plan ?? 'free'
-      const isFree   = userPlan === 'free'
-
-      // Playground mode keeps account quota disabled, but preserves stricter caps.
+      // Limits are applied based on playground mode vs standard limits.
       const effectiveTtl = isPlayground
         ? Math.min(body.data.ttl, config.playground.maxTtlSeconds)
-        : isFree
-          ? Math.min(body.data.ttl, 60 * 60 * 24)
-          : body.data.ttl
+        : Math.min(body.data.ttl, config.limits.maxTtlSeconds)
+
       const effectiveMaxViews = isPlayground
         ? Math.min(body.data.maxViews ?? 1, config.playground.maxViews)
-        : isFree
-          ? 1
-          : (body.data.maxViews ?? null)
-
-      // ── Monthly quota check (authenticated users only) ────────────────────────
-      if (owner && !isPlayground) {
-        const quota = await fastify.quota.checkAndIncrement(owner.userId, userPlan)
-
-        // Always expose quota headers so clients can self-throttle
-        void reply.header('X-RateLimit-Quota-Limit',     quota.limit)
-        void reply.header('X-RateLimit-Quota-Remaining', quota.remaining)
-        void reply.header('X-RateLimit-Quota-Reset',     quota.resetAt)
-
-        if (!quota.allowed) {
-          return reply.status(429).send({
-            error: `Monthly quota exceeded. Your ${userPlan} plan allows ${quota.limit} secrets per month. Resets ${quota.resetAt.slice(0, 10)}.`,
-            quota: { used: quota.used, limit: quota.limit, resetAt: quota.resetAt },
-          })
-        }
-      }
+        : (body.data.maxViews ? Math.min(body.data.maxViews, config.limits.maxViews) : null)
 
       const { ciphertext, iv, passwordHash } = body.data
       const { randomUUID } = await import('node:crypto')
@@ -311,39 +195,14 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
         views: 0,
         passwordHash: passwordHash ?? null,
         createdAt: Date.now(),
-        userId: owner ? owner.userId : null,
         isPlayground,
       })
 
       await fastify.redis.set(`item:${id}`, payload, 'EX', effectiveTtl)
 
-      if (owner) {
-        await fastify.prisma.auditLog.create({
-          data: {
-            action: 'create',
-            itemId: id,
-            userId: owner.userId,
-            meta: {
-              ip: request.ip,
-              userAgent: request.headers['user-agent'] || null,
-              ...(owner.source === 'apiKey' ? { apiKeyId: owner.apiKey.id } : {}),
-            },
-          },
-        }).catch((err) => fastify.log.error({ err, itemId: id }, 'Failed to write create audit log'))
-
-        if (owner.source === 'apiKey') {
-          await fastify.prisma.apiKey.update({
-            where: { id: owner.apiKey.id },
-            data: { lastUsedAt: new Date() },
-          }).catch((err) => fastify.log.error({ err, keyId: owner.apiKey.id }, 'Failed to update apiKey lastUsedAt'))
-        }
-      }
-
       return reply.status(201).send({
         id,
         expiresAt: new Date(Date.now() + effectiveTtl * 1000).toISOString(),
-        // Echo back the effective limits so the client knows what was applied
-        plan: userPlan,
         effectiveTtl,
         effectiveMaxViews,
         mode: isPlayground ? 'playground' : 'production',
@@ -398,7 +257,6 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
           views: number
           passwordHash: string | null
           createdAt: number
-          userId?: string | null
           isPlayground?: boolean
         }
 
@@ -407,7 +265,6 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // Optional password check (compare hashes client-side derived, not plaintext)
-        // Check X-Password-Hash header first (sent by frontend GET requests), then fallback to body/query if any
         const providedHash =
           (request.headers['x-password-hash'] as string | undefined) ||
           (request.body as { passwordHash?: string } | undefined)?.passwordHash
@@ -425,42 +282,6 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
           await fastify.redis.del(`item:${id}`)
         } else {
           await fastify.redis.set(`item:${id}`, JSON.stringify(item), 'EX', ttl)
-        }
-
-        // Write to audit log if this secret was created by an authenticated user
-        if (item.userId) {
-          // Log "read"
-          await fastify.prisma.auditLog.create({
-            data: {
-              action: 'read',
-              itemId: id,
-              userId: item.userId,
-              meta: {
-                ip: request.ip,
-                userAgent: request.headers['user-agent'] || null,
-              },
-            },
-          }).catch((err) => {
-            fastify.log.error({ err, itemId: id }, 'Failed to write read audit log')
-          })
-
-          // Log "delete" if it has been destroyed
-          if (isDestroyed) {
-            await fastify.prisma.auditLog.create({
-              data: {
-                action: 'delete',
-                itemId: id,
-                userId: item.userId,
-                meta: {
-                  ip: request.ip,
-                  userAgent: request.headers['user-agent'] || null,
-                  reason: 'max_views_reached',
-                },
-              },
-            }).catch((err) => {
-              fastify.log.error({ err, itemId: id }, 'Failed to write delete audit log')
-            })
-          }
         }
 
         return reply.send({
