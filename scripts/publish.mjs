@@ -9,17 +9,17 @@ if (!npmCli) {
 	throw new Error('npm_execpath is not set')
 }
 
-function runNpm(commandArgs) {
-	execFileSync(process.execPath, [npmCli, ...commandArgs], { stdio: 'inherit' })
+function runNpm(commandArgs, cwd) {
+	execFileSync(process.execPath, [npmCli, ...commandArgs], { stdio: 'inherit', cwd })
 }
 
 runNpm(['run', 'build'])
-runNpm(['--prefix', 'sdk', 'run', 'build'])
+runNpm(['run', 'build'], 'sdk')
 
 if (args.includes('--dry-run')) {
 	runNpm(['pack', '--dry-run'])
-	runNpm(['--prefix', 'sdk', 'pack', '--dry-run'])
+	runNpm(['pack', '--dry-run'], 'sdk')
 } else {
 	runNpm(['publish', ...args])
-	runNpm(['--prefix', 'sdk', 'publish', ...args])
+	runNpm(['publish', ...args], 'sdk')
 }
