@@ -71,7 +71,7 @@ Ensure you have Node.js 20+ and Redis running.
 
 ```bash
 # Clone the repository
-git clone https://github.com/fadekeyapp/fadekey.api.git
+git clone https://github.com/fadekey-app/fadekey.api.git
 cd fadekey.api
 
 # Install dependencies
@@ -179,6 +179,20 @@ curl -X GET http://localhost:3002/api/items/YOUR_SECRET_UUID
 *   **Secure Key Passing**: Securely pass temporary access tokens or configuration parameters between decoupled tasks in a pipeline without writing them to persistent system logs.
 *   **Ephemeral Developer Access**: Generate one-time-use tokens for developer debugging sessions that expire automatically in 15 minutes.
 *   **ChatOps Integration**: Share credentials securely inside Slack or Discord teams using bot-generated links that disappear after the user opens them.
+
+### 3. Official GitHub Action (`fadekey-app/share-secret`)
+
+For teams building on GitHub Actions, the official [fadekey-app/share-secret](https://github.com/fadekey-app/share-secret) Action makes it easy to share secrets between jobs or post secure retrieval links to Pull Requests without leaving sensitive credentials in your runner logs:
+
+```yaml
+- name: Share Ephemeral Secret
+  uses: fadekey-app/share-secret@v1
+  with:
+    api_key: ${{ secrets.FADEKEY_API_KEY }}
+    payload: "my-deployment-secret"
+    ttl: 600
+    create_pr_comment: true
+```
 
 ---
 
