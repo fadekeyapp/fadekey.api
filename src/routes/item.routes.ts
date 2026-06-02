@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config.js'
+import { getAndConsumeSecret } from '../utils/redis-helper.js'
 
 /**
  * Public item routes — no authentication required.
@@ -245,43 +246,28 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.status(400).send({ error: 'Invalid item ID.' })
         }
 
-        const raw = await fastify.redis.get(`item:${id}`)
-        if (!raw) {
-          return reply.status(404).send({ error: 'Item not found or already expired.' })
-        }
-
-        const item = JSON.parse(raw) as {
-          ciphertext: string
-          iv: string
-          maxViews: number | null
-          views: number
-          passwordHash: string | null
-          createdAt: number
-          isPlayground?: boolean
-        }
-
-        if (item.isPlayground && !playgroundSession) {
-          return reply.status(403).send({ error: 'Playground secrets can only be decrypted within the API documentation playground.' })
-        }
-
         // Optional password check (compare hashes client-side derived, not plaintext)
         const providedHash =
           (request.headers['x-password-hash'] as string | undefined) ||
           (request.body as { passwordHash?: string } | undefined)?.passwordHash
 
-        if (item.passwordHash && item.passwordHash !== providedHash) {
+        const result = await getAndConsumeSecret(
+          fastify.redis,
+          id,
+          providedHash ?? null
+        )
+
+        if (result.status === 'NOT_FOUND') {
+          return reply.status(404).send({ error: 'Item not found or already expired.' })
+        }
+        if (result.status === 'INVALID_PASSWORD') {
           return reply.status(401).send({ error: 'Invalid password.' })
         }
 
-        item.views += 1
-        const ttl = await fastify.redis.ttl(`item:${id}`)
-        const isDestroyed = item.maxViews !== null && item.views >= item.maxViews
+        const item = result.item
 
-        if (isDestroyed) {
-          // Destroy on final view
-          await fastify.redis.del(`item:${id}`)
-        } else {
-          await fastify.redis.set(`item:${id}`, JSON.stringify(item), 'EX', ttl)
+        if (item.isPlayground && !playgroundSession) {
+          return reply.status(403).send({ error: 'Playground secrets can only be decrypted within the API documentation playground.' })
         }
 
         return reply.send({
@@ -290,7 +276,7 @@ const itemRoutes: FastifyPluginAsync = async (fastify) => {
           hasPassword: item.passwordHash !== null,
           views: item.views,
           maxViews: item.maxViews,
-          destroyed: isDestroyed,
+          destroyed: item.destroyed,
         })
       },
     },

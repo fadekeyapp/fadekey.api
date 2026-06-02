@@ -1,4 +1,5 @@
 import cors from '@fastify/cors'
+import fp from 'fastify-plugin'
 import type { FastifyPluginAsync } from 'fastify'
 import { config } from '../config.js'
 
@@ -16,13 +17,23 @@ import { config } from '../config.js'
  *   Browsers reject `credentials: true` + `origin: '*'` simultaneously.
  */
 
-export const appCorsPlugin: FastifyPluginAsync = async (fastify) => {
+const corsPlugin: FastifyPluginAsync = async (fastify) => {
   await fastify.register(cors, {
     // Use a single CORS registration and vary behavior by path to avoid duplicate OPTIONS '*' routes.
     delegator: (req, cb) => {
       const isPublicItems = req.url.startsWith('/api/items')
+      const origin = req.headers.origin
 
       if (isPublicItems) {
+        if (origin && config.cors.origins.includes(origin)) {
+          cb(null, {
+            origin: origin,
+            credentials: true,
+            methods: ['GET', 'POST', 'OPTIONS'],
+            allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Playground-Token'],
+          })
+          return
+        }
         cb(null, {
           origin: '*',
           credentials: false,
@@ -51,7 +62,12 @@ export const appCorsPlugin: FastifyPluginAsync = async (fastify) => {
       const isPublicItems = rawUrl.startsWith('/api/items') || rawUrl.startsWith('/items')
 
       if (isPublicItems) {
-        reply.header('Access-Control-Allow-Origin', '*')
+        if (origin && Array.isArray(config.cors.origins) && config.cors.origins.includes(origin)) {
+          reply.header('Access-Control-Allow-Origin', origin)
+          reply.header('Access-Control-Allow-Credentials', 'true')
+        } else {
+          reply.header('Access-Control-Allow-Origin', '*')
+        }
         reply.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         reply.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key, X-Playground-Token')
       } else if (origin && Array.isArray(config.cors.origins) && config.cors.origins.includes(origin)) {
@@ -67,3 +83,5 @@ export const appCorsPlugin: FastifyPluginAsync = async (fastify) => {
     return payload
   })
 }
+
+export const appCorsPlugin = fp(corsPlugin, { name: 'app-cors' })
