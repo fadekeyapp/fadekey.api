@@ -223,6 +223,18 @@ export class FadeKey {
     }
   }
 
+  /**
+   * Revoke (delete) a secret before it expires or is fully read.
+   * Requires authentication (API key or Bearer token) and ownership of the secret.
+   *
+   * @param id — UUID of the secret to revoke.
+   */
+  async revoke(id: string): Promise<void> {
+    await this.fetch(`/api/items/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+  }
+
   // ── Low-level API (no encryption) ───────────────────────────────────────────
 
   /**
@@ -299,6 +311,9 @@ export class FadeKey {
     })
 
     if (res.ok) {
+      if (res.status === 204) {
+        return
+      }
       return res.json()
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "fadekey-api",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "description": "Stateless, Redis-backed zero-knowledge sharing engine for FadeKey",
   "license": "MIT",
   "private": false,
